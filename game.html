@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Corgi Pong Ping</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111;
+      color: white;
+      font-family: Arial, sans-serif;
+      position: relative;
+    }
+    #discoVideo {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 0;
+      display: none;
+      pointer-events: none;
+    }
+    #scoreboard {
+      text-align: center;
+      font-size: 20px;
+      margin: 10px 0;
+      position: relative;
+      z-index: 2;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      background: #222;
+      border: 2px solid #444;
+      position: relative;
+      z-index: 2;
+    }
+    #celebration, #specialCelebration {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: none;
+      z-index: 3;
+      pointer-events: none;
+    }
+    #gameOverPrompt {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      padding: 20px;
+      border-radius: 10px;
+      color: white;
+      font-size: 24px;
+      display: none;
+      z-index: 4;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <video id="discoVideo" src="disco.mp4" preload="auto"></video>
+
+  <div id="scoreboard">Score: 0 | High Score: 0</div>
+  <div id="gameOverPrompt">Game Over<br><button onclick="location.reload()">Restart</button></div>
+  <canvas id="gameCanvas" width="400" height="700"></canvas>
+
+  <img id="celebration" src="score.gif" alt="Celebration" />
+  <img id="specialCelebration" src="special.gif" alt="Special Celebration" />
+
+  <audio id="celebrationSound" src="score.ogg"></audio>
+  <audio id="specialCelebrationSound" src="special.ogg"></audio>
+  <audio id="bgMusic" src="background.ogg" preload="auto" loop></audio>
+  <audio id="discoMusic" src="disco.ogg" preload="auto"></audio>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreboard = document.getElementById('scoreboard');
+    const celebrationImg = document.getElementById('celebration');
+    const specialCelebrationImg = document.getElementById('specialCelebration');
+    const celebrationSound = document.getElementById('celebrationSound');
+    const specialCelebrationSound = document.getElementById('specialCelebrationSound');
+    const gameOverPrompt = document.getElementById('gameOverPrompt');
+    const bgMusic = document.getElementById('bgMusic');
+    const discoMusic = document.getElementById('discoMusic');
+    const discoVideo = document.getElementById('discoVideo');
+
+    const ballImg = new Image(); ballImg.src = 'ball.png';
+    const paddleImg = new Image(); paddleImg.src = 'paddle.png';
+
+    let gameStarted = false;
+    let gameOver = false;
+    let score = 0;
+    let celebrationScore = 0;
+    let highScore = parseInt(localStorage.getItem('highScore')) || 0;
+    let paddleDirection = 0;
+
+    let discoTriggered = false;
+    let inDiscoMode = false;
+
+    const paddle = { x: canvas.width/2 - 60, y: canvas.height - 40, width: 120, height: 30, speed: 7, dx: 0 };
+    const initialSpeed = { dx: 2, dy: -4 };
+    const maxSpeed = 15;
+    const speedIncrementPerPoint = 0.025;
+    let ball = { x: canvas.width/2, y: 300, width: 55.25, height: 95.25, dx: initialSpeed.dx, dy: initialSpeed.dy };
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') { paddle.dx = -paddle.speed; paddleDirection = -1; }
+      if (e.key === 'ArrowRight') { paddle.dx = paddle.speed; paddleDirection = 1; }
+      if (e.key === 'Enter') {
+        if (!gameStarted) {
+          gameStarted = true;
+          gameOver = false;
+          score = 0;
+          celebrationScore = 0;
+          ball = { x: canvas.width/2, y: 300, width: 55.25, height: 95.25, dx: initialSpeed.dx, dy: initialSpeed.dy };
+          gameOverPrompt.style.display = 'none';
+          bgMusic.currentTime = 0;
+          bgMusic.play().catch(() => {});
+        }
+      }
+    });
+
+    document.addEventListener('keyup', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') paddle.dx = 0;
+    });
+
+    function movePaddle() {
+      paddle.x = Math.max(0, Math.min(canvas.width - paddle.width, paddle.x + paddle.dx));
+    }
+
+    function increaseBallSpeed() {
+      const factor = 1 + score * speedIncrementPerPoint;
+      ball.dx = Math.sign(ball.dx) * Math.min(maxSpeed, Math.abs(initialSpeed.dx) * factor);
+      ball.dy = -Math.min(maxSpeed, Math.abs(initialSpeed.dy) * factor);
+    }
+
+    function triggerDiscoMode() {
+      inDiscoMode = true;
+      discoTriggered = true;
+      discoVideo.style.display = 'block';
+      discoVideo.play();
+      bgMusic.pause();
+      discoMusic.currentTime = 0;
+      discoMusic.play();
+      specialCelebrationImg.style.display = 'block';
+      specialCelebrationSound.play();
+      setTimeout(() => specialCelebrationImg.style.display = 'none', 4000);
+    }
+
+    function endDiscoMode() {
+      inDiscoMode = false;
+      discoVideo.style.display = 'none';
+      discoMusic.pause();
+      bgMusic.play().catch(() => {});
+    }
+
+    discoVideo.addEventListener('ended', () => {
+      endDiscoMode();
+    });
+
+    function updateBall() {
+      if (!gameStarted) return;
+      ball.x += ball.dx;
+      ball.y += ball.dy;
+
+      if (ball.x - ball.width/2 < 0 || ball.x + ball.width/2 > canvas.width) ball.dx *= -1;
+      if (ball.y - ball.height/2 < 0) ball.dy *= -1;
+
+      const cbw = ball.width, cbh = ball.height/2;
+      const cbx = ball.x - cbw/2, cby = ball.y + ball.height/2 - cbh;
+      const cpw = paddle.width, cph = paddle.height/2;
+      const cpx = paddle.x + (paddle.width - cpw)/2, cpy = paddle.y;
+
+      if (cbx < cpx + cpw && cbx + cbw > cpx && cby < cpy + cph && cby + cbh > cpy) {
+        ball.y = paddle.y - ball.height/2 - 1;
+        ball.dy = -Math.abs(ball.dy);
+        if (paddleDirection !== 0) ball.dx = paddleDirection * Math.abs(ball.dx);
+        score++;
+        celebrationScore++;
+
+        if (score > highScore) {
+          highScore = score;
+          localStorage.setItem('highScore', highScore);
+        }
+
+        increaseBallSpeed();
+
+        if (celebrationScore === 15) {
+          celebrationScore = 0;
+          celebrationImg.style.display = 'block';
+          celebrationSound.play();
+          setTimeout(() => celebrationImg.style.display = 'none', 3000);
+        }
+
+        if (score === 20 && !discoTriggered) {
+          triggerDiscoMode();
+        }
+      }
+
+      if (ball.y - ball.height/2 > canvas.height) {
+        gameOverPrompt.style.display = 'block';
+        gameStarted = false;
+        gameOver = true;
+        bgMusic.pause();
+        discoMusic.pause();
+        discoVideo.pause();
+      }
+
+      scoreboard.textContent = `Score: ${score} | High Score: ${highScore}`;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(paddleImg, paddle.x, paddle.y, paddle.width, paddle.height);
+      ctx.drawImage(ballImg, ball.x - ball.width/2, ball.y - ball.height/2, ball.width, ball.height);
+
+      if (!gameStarted && !gameOver) {
+        ctx.fillStyle = 'white';
+        ctx.font = '24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Press Enter to Start', canvas.width/2, canvas.height/2);
+      }
+    }
+
+    function loop() {
+      movePaddle();
+      updateBall();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    window.onload = () => {
+      bgMusic.volume = 0.8;
+      discoMusic.volume = 0.9;
+      loop();
+    };
+  </script>
+</body>
+</html>
